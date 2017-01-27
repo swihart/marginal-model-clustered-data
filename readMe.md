@@ -4,33 +4,118 @@ January 27, 2017
 
 
 
+Repo for my answer to:
 [Stackoverflow:  R geepack: unreasonably large estimates using GEE](http://stackoverflow.com/q/41683769/2727349)
 
-## R Markdown
+I will give three approaches, where the coefficient have marginal logistic interpretations and are of smaller magnitude:
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+| Model | (Intercept) |  power |
+|-------|-------------|------|
+| `L_N`   |   -1.050| 0.00267    |
+| `LLB`   |   -0.664| 0.00342    |
+| `LPN`   |   -1.176| 0.00570    |
 
+The code and PDFs for literature are in the [GITHUB repo](https://github.com/swihart/marginal-model-clustered-data).
+
+A marginalized random intercept model (MRIM) is worth exploring because you want a marginal model with exchangeable correlation structure for the clustered data.  
+
+The concept of MRIM has been around since 1999, and some background reading on this is in the [GITHUB repo](https://github.com/swihart/marginal-model-clustered-data).  I suggest reading *Swihart et al 2014* first because it serves as a nice review paper (or so I have been told).
+
+In chronological order --
+
+  * `L_N`  *Heagerty (1999)*:  the approach fits a random intercept logistic model with a normally distributed random intercept.  The trick is that the predictor in the random intercept model is nonlinearly parameterized with marginal coefficients so that the resulting marginal model has a marginal logistic interpretation.  Its code is the `lnMLE` R package (not on CRAN, but on Patrick Heagerty's website [here](https://faculty.washington.edu/heagerty/Software/LDA/MLV/)).  This approach is denoted `L_N` in the code to indicate logit (L) on the marginal, no interepretation on conditional scale (_) and a normally (N) distributed random intercept.
+
+  * `LLB`  *Wang & Louis (2003)*:  the approach fits a random intercept logistic model with a *bridge* distributed random intercept.  Unlike Heagerty 1999 where the trick is nonlinear-predictor for the random intercept model, the trick is a special random effects distribution (the bridge distribution) that allows both the random intercept model and the resulting marginal model to have a logistic interpretation.  Its code is implemented with `gnlmix4mmm.R` (in the repo) which uses `rmutil` and `repeated` R packages.  This approach is denoted `LLB` in the code to indicate logit (L) on the marginal, logit (L) on the conditional scale and a bridge (B) distributed intercept.
+
+  * `LPN`  *Caffo and Griswold (2006)*:  the approach fits a random intercept *probit* model with a normally distributed random intercept, whereas Heagerty 1999 used a *logit* random intercept model.  This substitution makes computations easier and still yields a marginal logit model.  Its code is implemented with `gnlmix4mmm.R` (in the repo) which uses `rmutil` and `repeated` R packages.  This approach is denoted `LPN` in the code to indicate logit (L) on the marginal, probit (P)  on the conditional scale and a normally (N) distributed intercept.
+
+  *  [*Griswold et al (2013)*](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3865434/) another review / practical introduction.
+  
+  *  *Swihart et al 2014*:  This is a review paper for Heagerty 1999 and Wang & Louis 2003 as well as others and generalizes the MRIM method.  One of the most interesting generalizations is allowing the logistic CDF (equivalently, logit link) in both the marginal and conditional models to be a stable distribution that approximates a logistic CDF.  Its code is implemented with `gnlmix4mmm.R` (in the repo) which uses `rmutil` and `repeated` R packages.  I denote this `SSS` below to indicate stable (S) on the marginal, stable (S) on the conditional scale and a stable (S) distributed intercept.
+  
 
 ```r
-summary(cars)
+## code from the OP Question: edit `data` to `d` 
+require(geepack)
+d = read.csv(url("http://folk.uio.no/mariujon/data.csv"))
+fit = geeglm(moden ~ 1 + power, id = defacto, data=d, corstr = "exchangeable", family=binomial)
+summary(fit)
+plot(moden ~ power, data=d)
+x = 0:2500
+y = predict(fit, newdata=data.frame(power = x), type="response" )
+lines(x,y)
+## I'm so sorry but these methods use attach()
+attach(d)
+
+## Heagerty (1999) 
+# marginally specifies a logit link and has a nonlinear conditional model
+# the following code will not run if lnMLE is not successfully installed.  
+# See https://faculty.washington.edu/heagerty/Software/LDA/MLV/
+library(lnMLE)
+L_N <- logit.normal.mle(meanmodel = moden ~ power,
+                        logSigma= ~1,
+                        id=defacto,
+                        model="marginal",
+                        data=d,
+                        r=10) 
+print.logit.normal.mle(L_N)
+
+
+
+library("stabledist")
+library("gnlm")
+library("repeated")
+source("gnlmix4MMM.R") ## see ?gnlmix 
+y <- cbind(d$moden,(1-d$moden))
+
+## Wang and Louis 2003
+LLB  <- gnlmix4MMM(   y = y,
+                      distribution = "binomial",
+                      mixture = "normal",
+                      random = "rand",
+                      nest = defacto,
+                      mu = ~ 1/(1+exp(-(a0 + a1*power)*sqrt(1+3/pi/pi*exp(pmix)) - sqrt(1+3/pi/pi*exp(pmix))*log(sin(pi*pnorm(rand/sqrt(exp(pmix)))/sqrt(1+3/pi/pi*exp(pmix)))/sin(pi*(1-pnorm(rand/sqrt(exp(pmix))))/sqrt(1+3/pi/pi*exp(pmix)))))),
+                      pmu = c(-1e-2, 1e-3, log(10^2)),
+                      pmix = log(10^2),
+                      gradtol = 1e-5,
+                      steptol = 1e-5,
+                      iterlim = 1e5,
+                      eps = 1e-4,
+                      points = 6)
+
+print("code: 1 -best 2-ok 3,4,5 - problem")
+LLB$code
+print("coefficients")
+LLB$coeff
+print("se")
+LLB$se
+
+## Caffo and Griswold (2006) 
+LPN  <- gnlmix4MMM(   y = y,
+                      distribution = "binomial",
+                      mixture = "normal",
+                      random = "rand",
+                      nest = defacto,
+                      mu = ~pnorm(qnorm(1/(1+exp(-a0 - a1*power)))*sqrt(1+exp(pmix)) + rand),
+                      pmu = c(-1e-2, 1e-3, log(10^2)),
+                      pmix = log(10^2),
+                      gradtol = 1e-5,
+                      steptol = 1e-5,
+                      iterlim = 1e5,
+                      eps = 1e-4,
+                      points = 6)
+
+print("code: 1 -best 2-ok 3,4,5 - problem")
+LPN$code
+print("coefficients")
+LPN$coeff
+print("se")
+LPN$se
+
+## coefficients from 3 approaches:
+rbind("L_N"=L_N$beta, "LLB" = LLB$coefficients[1:2], "LPN"=LPN$coefficients[1:2])
 ```
 
-```
-##      speed           dist       
-##  Min.   : 4.0   Min.   :  2.00  
-##  1st Qu.:12.0   1st Qu.: 26.00  
-##  Median :15.0   Median : 36.00  
-##  Mean   :15.4   Mean   : 42.98  
-##  3rd Qu.:19.0   3rd Qu.: 56.00  
-##  Max.   :25.0   Max.   :120.00
-```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-![](readMe_files/figure-html/pressure-1.png)<!-- -->
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+  
