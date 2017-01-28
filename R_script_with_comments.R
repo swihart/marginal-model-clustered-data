@@ -2,12 +2,44 @@
 ## code from the OP Question: edit `data` to `d` 
 require(geepack)
 d = read.csv(url("http://folk.uio.no/mariujon/data.csv"))
-fit = geeglm(moden ~ 1 + power, id = defacto, data=d, corstr = "exchangeable", family=binomial)
+fit = geeglm(moden ~  power, id = defacto, data=d, corstr = "exchangeable", family=binomial)
 summary(fit)
-plot(moden ~ power, data=d)
-x = 0:2500
-y = predict(fit, newdata=data.frame(power = x), type="response" )
-lines(x,y)
+# plot(moden ~ power, data=d)
+# x = 0:2500
+# y = predict(fit, newdata=data.frame(power = x), type="response" )
+# lines(x,y)
+
+
+#######################################
+## gee - arguments / tricks.  Nothing's working...
+#######################################
+- glm(moden ~  power, family = binomial, data=d)$deviance / 2
+
+strt <- coef(glm(moden ~  power, family = binomial, data=d))
+strt
+## error
+geeglm(moden ~  power, id = defacto, data=d, corstr = "exchangeable", family=binomial,
+       start=strt)
+## same as geeglm() in OP
+geese(moden ~ power, id = defacto, data=d, corstr = "exchangeable", family=binomial,
+      b=strt)
+
+yvec <- as.numeric(c(d$moden))
+Xmat <- matrix(NA, nrow=length(d$power), ncol=2)
+Xmat[,1] <- 1
+Xmat[,2] <- as.numeric(c(d$power))
+idvec <- as.numeric(c(d$defacto))
+## error:
+geese.fit(y=yvec, 
+          x=Xmat,
+          id = idvec,
+          family=binomial(),
+          b=strt)
+
+
+#######################################
+## marginalized random intercept models
+#######################################
 
 ## I'm so sorry but these methods use attach()
 attach(d)
@@ -22,11 +54,16 @@ L_N <- logit.normal.mle(meanmodel = moden ~ power,
                         id=defacto,
                         model="marginal",
                         data=d,
+                        beta=strt,
                         r=10 ## see help, r:  Number of Gauss-Hermite quadrature points. 
                              ## The user may choose r=3, 5, 10, 20, or 50. The default value is r=20. 
                              ## above 10 really slowed for your dataset
                         ) 
 print.logit.normal.mle(L_N)
+## variance of normal distribution
+##exp(L_N$alphas[1])^2
+## intraclass correlation
+##exp(L_N$alphas[1])^2 / (pi^2/3 + exp(L_N$alphas[1])^2)
 
 library("stabledist")
 library("gnlm")
@@ -43,10 +80,6 @@ library("repeated")
 ## modifications.  These are superficial:  The Mixing Dispersion parameter is now
 ## listed in the location parameters and the correlations can be obtained by
 ## directly accessing fitted.obj$corr; the error relates to assigning dimnames.  See examples below.
-## One warning message persists for LLB, which can be disregarded:
-## Warning message:
-##In nlm(like, p = p, hessian = TRUE, print.level = print.level, typsize = typsize,  :
-##  NA/Inf replaced by maximum positive value
 source("gnlmix4MMM.R")
 
 ## need outcomes to be in two column format
@@ -76,8 +109,8 @@ LLB  <- gnlmix4MMM(   y = y,
                       random = "rand",
                       nest = defacto,
                       mu = ~ 1/(1+exp(-(a0 + a1*power)*sqrt(1+3/pi/pi*exp(pmix)) - sqrt(1+3/pi/pi*exp(pmix))*log(sin(pi*pnorm(rand/sqrt(exp(pmix)))/sqrt(1+3/pi/pi*exp(pmix)))/sin(pi*(1-pnorm(rand/sqrt(exp(pmix))))/sqrt(1+3/pi/pi*exp(pmix)))))),
-                      pmu = c(-1e-2, 1e-3, log(10^2)),
-                      pmix = log(10^2),
+                      pmu = c(strt, log(1)),
+                      pmix = log(1),
                       gradtol = 1e-5,
                       steptol = 1e-5,
                       iterlim = 1e5,
@@ -104,7 +137,10 @@ LLB$corr
 ## print everything, even including some slots that are empty due to
 ## edits performed on gnlmix() to render gnlmix4MMM()
 print(LLB)
-
+## variance of bridge distribution
+##exp(LLB$coeff[3])
+## intraclass correlation
+##exp(LLB$coeff[3]) / (pi^2/3 + exp(LLB$coeff[3]))
 
 
 
@@ -129,8 +165,8 @@ LPN  <- gnlmix4MMM(   y = y,
                       random = "rand",
                       nest = defacto,
                       mu = ~pnorm(qnorm(1/(1+exp(-a0 - a1*power)))*sqrt(1+exp(pmix)) + rand),
-                      pmu = c(-1e-2, 1e-3, log(10^2)),
-                      pmix = log(10^2),
+                      pmu = c(strt, log(1)),
+                      pmix = log(1),
                       gradtol = 1e-5,
                       steptol = 1e-5,
                       iterlim = 1e5,
@@ -154,6 +190,10 @@ LPN$corr
 ## print everything, even including some slots that are empty due to
 ## edits performed on gnlmix() to render gnlmix4MMM()
 print(LPN)
+## variance of normal distribution
+exp(LPN$coeff[3])
+## intraclass correlation
+exp(LPN$coeff[3]) / (1 + exp(LPN$coeff[3]))
 
 end.time <- Sys.time()
 time.taken <- end.time - start.time
@@ -172,8 +212,8 @@ SSS  <- gnlmix4MMM(   y = y,
                       random = "rand",
                       nest = defacto,
                       mu = ~pstable( (a0 + a1*power)*(gam/(gam^alp+ (exp(pmix))^alp)^(1/alp)  )^(-1) + qstable( min(max(pnorm(rand/sqrt(exp(pmix))), 1e-200), 1-1e-16), alp,0,exp(pmix),0,0), alp,0,gam,0,0),
-                      pmu = c(-1e-7, 1e-6, log(1000^2)),
-                      pmix = log(1000^2),
+                      pmu = c(strt, log(1)),
+                      pmix = log(1),
                       gradtol = 1e-5,
                       steptol = 1e-5,
                       iterlim = 1e5,
@@ -207,3 +247,5 @@ time.taken <- end.time - start.time
 time.taken
 
 rbind("L_N"=L_N$beta, "LLB" = LLB$coefficients[1:2], "LPN"=LPN$coefficients[1:2])
+
+rbind("L_N"=L_N$logL, "LLB" = -LLB$maxlike, "LPN"=-LPN$maxlike)

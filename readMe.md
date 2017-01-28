@@ -45,6 +45,12 @@ plot(moden ~ power, data=d)
 x = 0:2500
 y = predict(fit, newdata=data.frame(power = x), type="response" )
 lines(x,y)
+
+## get some starting values from glm():
+strt <- coef(glm(moden ~  power, family = binomial, data=d))
+strt
+
+
 ## I'm so sorry but these methods use attach()
 attach(d)
 
@@ -58,6 +64,7 @@ L_N <- logit.normal.mle(meanmodel = moden ~ power,
                         id=defacto,
                         model="marginal",
                         data=d,
+                        beta=strt,
                         r=10) 
 print.logit.normal.mle(L_N)
 
@@ -76,13 +83,8 @@ LLB  <- gnlmix4MMM(   y = y,
                       random = "rand",
                       nest = defacto,
                       mu = ~ 1/(1+exp(-(a0 + a1*power)*sqrt(1+3/pi/pi*exp(pmix)) - sqrt(1+3/pi/pi*exp(pmix))*log(sin(pi*pnorm(rand/sqrt(exp(pmix)))/sqrt(1+3/pi/pi*exp(pmix)))/sin(pi*(1-pnorm(rand/sqrt(exp(pmix))))/sqrt(1+3/pi/pi*exp(pmix)))))),
-                      pmu = c(-1e-2, 1e-3, log(10^2)),
-                      pmix = log(10^2),
-                      gradtol = 1e-5,
-                      steptol = 1e-5,
-                      iterlim = 1e5,
-                      eps = 1e-4,
-                      points = 6)
+                      pmu = c(strt, log(1)),
+                      pmix = log(1))
 
 print("code: 1 -best 2-ok 3,4,5 - problem")
 LLB$code
@@ -98,13 +100,8 @@ LPN  <- gnlmix4MMM(   y = y,
                       random = "rand",
                       nest = defacto,
                       mu = ~pnorm(qnorm(1/(1+exp(-a0 - a1*power)))*sqrt(1+exp(pmix)) + rand),
-                      pmu = c(-1e-2, 1e-3, log(10^2)),
-                      pmix = log(10^2),
-                      gradtol = 1e-5,
-                      steptol = 1e-5,
-                      iterlim = 1e5,
-                      eps = 1e-4,
-                      points = 6)
+                      pmu = c(strt, log(1)),
+                      pmix = log(1))
 
 print("code: 1 -best 2-ok 3,4,5 - problem")
 LPN$code
